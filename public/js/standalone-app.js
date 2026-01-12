@@ -12,13 +12,18 @@ class MDViewerStandalone {
         this.isResizing = false;
         this.dbName = 'md-viewer-db';
         this.storeName = 'folders';
+        this.recentFoldersStore = 'recentFolders';
+        this.maxRecentFolders = 10; // 最多保存10个最近目录
         
         this.initElements();
         this.initMarked();
         this.bindEvents();
         this.loadTheme();
         this.checkBrowserSupport();
-        this.initDB().then(() => this.restoreLastFolder());
+        this.initDB().then(() => {
+            this.restoreLastFolder();
+            this.loadRecentFolders();
+        });
         this.initDiagramZoom();
     }
     
@@ -47,7 +52,7 @@ class MDViewerStandalone {
     // 初始化 IndexedDB
     async initDB() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 1);
+            const request = indexedDB.open(this.dbName, 2); // 升级版本号以支持新的store
             
             request.onerror = () => {
                 console.error('无法打开数据库');
@@ -63,6 +68,10 @@ class MDViewerStandalone {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName);
+                }
+                // 为最近文件夹创建新的object store
+                if (!db.objectStoreNames.contains(this.recentFoldersStore)) {
+                    db.createObjectStore(this.recentFoldersStore, { keyPath: 'id', autoIncrement: true });
                 }
             };
         });
@@ -134,6 +143,228 @@ class MDViewerStandalone {
             });
         } catch (error) {
             console.error('恢复上次文件夹失败:', error);
+        }
+    }
+    
+    // 添加文件夹到最近列表
+    async addToRecentFolders(handle) {
+        if (!this.db || !handle) return;
+        
+        try {
+            // 先获取所有文件夹
+            const folders = await this.getAllRecentFolders();
+            
+            // 检查是否已存在（通过name判断）
+            const existingFolder = folders.find(f => f.name === handle.name);
+            const existingId = existingFolder ? existingFolder.id : null;
+            
+            // 确定需要删除的旧文件夹ID
+            let oldestId = null;
+            if (!existingId && folders.length >= this.maxRecentFolders) {
+                // 如果不是更新现有项，且已达到上限，需要删除最旧的
+                const sortedFolders = [...folders].sort((a, b) => a.timestamp - b.timestamp);
+                oldestId = sortedFolders[0].id;
+            }
+            
+            // 创建新的事务进行写操作
+            const transaction = this.db.transaction([this.recentFoldersStore], 'readwrite');
+            const store = transaction.objectStore(this.recentFoldersStore);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log('文件夹已添加到最近列表:', handle.name);
+                    // 重新加载最近文件夹列表（不使用await）
+                    this.loadRecentFolders()
+                        .then(() => resolve())
+                        .catch(err => {
+                            console.error('重新加载文件夹列表失败:', err);
+                            resolve(); // 仍然resolve，因为添加操作已成功
+                        });
+                };
+                
+                transaction.onerror = () => {
+                    console.error('添加到最近文件夹失败:', transaction.error);
+                    reject(transaction.error);
+                };
+                
+                // 如果已存在，删除旧的
+                if (existingId) {
+                    store.delete(existingId);
+                }
+                
+                // 如果需要删除最旧的
+                if (oldestId) {
+                    store.delete(oldestId);
+                }
+                
+                // 添加新的到列表
+                const newEntry = {
+                    handle: handle,
+                    name: handle.name,
+                    timestamp: Date.now()
+                };
+                store.add(newEntry);
+            });
+        } catch (error) {
+            console.error('添加到最近文件夹失败:', error);
+        }
+    }
+    
+    // 获取所有最近文件夹（辅助方法）
+    async getAllRecentFolders() {
+        if (!this.db) return [];
+        
+        const transaction = this.db.transaction([this.recentFoldersStore], 'readonly');
+        const store = transaction.objectStore(this.recentFoldersStore);
+        const request = store.getAll();
+        
+        return new Promise((resolve) => {
+            request.onsuccess = () => {
+                resolve(request.result || []);
+            };
+            
+            request.onerror = () => {
+                console.error('获取最近文件夹失败:', request.error);
+                resolve([]);
+            };
+        });
+    }
+    
+    // 加载最近文件夹列表
+    async loadRecentFolders() {
+        if (!this.db) return;
+        
+        try {
+            const transaction = this.db.transaction([this.recentFoldersStore], 'readonly');
+            const store = transaction.objectStore(this.recentFoldersStore);
+            const request = store.getAll();
+            
+            return new Promise((resolve) => {
+                request.onsuccess = () => {
+                    let folders = request.result || [];
+                    // 按时间戳降序排序（最新的在前）
+                    folders.sort((a, b) => b.timestamp - a.timestamp);
+                    this.renderRecentFolders(folders);
+                    resolve();
+                };
+                
+                request.onerror = () => {
+                    console.error('加载最近文件夹失败:', request.error);
+                    resolve();
+                };
+            });
+        } catch (error) {
+            console.error('加载最近文件夹失败:', error);
+        }
+    }
+    
+    // 渲染最近文件夹列表
+    renderRecentFolders(folders) {
+        const container = document.getElementById('recentFoldersContainer');
+        if (!container) return;
+        
+        if (folders.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        
+        container.style.display = 'block';
+        const listEl = document.getElementById('recentFoldersList');
+        listEl.innerHTML = '';
+        
+        folders.forEach(folder => {
+            const item = document.createElement('div');
+            item.className = 'recent-folder-item';
+            item.innerHTML = `
+                <i class="fas fa-folder"></i>
+                <span class="folder-name" title="${folder.name}">${folder.name}</span>
+                <button class="btn-icon-small delete-folder" data-id="${folder.id}" title="从列表中移除">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            
+            // 点击文件夹名称切换到该文件夹
+            item.querySelector('.folder-name').addEventListener('click', async () => {
+                await this.switchToFolder(folder.handle);
+            });
+            
+            item.querySelector('i.fa-folder').addEventListener('click', async () => {
+                await this.switchToFolder(folder.handle);
+            });
+            
+            // 点击删除按钮从列表中移除
+            item.querySelector('.delete-folder').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await this.removeRecentFolder(folder.id);
+            });
+            
+            // 高亮当前文件夹
+            if (this.directoryHandle && this.directoryHandle.name === folder.name) {
+                item.classList.add('active');
+            }
+            
+            listEl.appendChild(item);
+        });
+    }
+    
+    // 切换到指定文件夹
+    async switchToFolder(handle) {
+        if (!handle) return;
+        
+        try {
+            // 检查权限
+            const options = { mode: 'read' };
+            const permission = await handle.queryPermission(options);
+            
+            if (permission === 'granted' || (permission === 'prompt' && await handle.requestPermission(options) === 'granted')) {
+                this.directoryHandle = handle;
+                await this.saveFolderHandle(handle);
+                this.showToast(`已切换到文件夹: ${handle.name}`, 'success');
+                await this.loadFiles();
+                await this.loadRecentFolders(); // 更新高亮状态
+            } else {
+                this.showToast('无法访问该文件夹，权限被拒绝', 'error');
+            }
+        } catch (error) {
+            console.error('切换文件夹失败:', error);
+            this.showToast('切换文件夹失败: ' + error.message, 'error');
+        }
+    }
+    
+    // 从最近列表中移除文件夹
+    async removeRecentFolder(id) {
+        if (!this.db) return;
+        
+        try {
+            const transaction = this.db.transaction([this.recentFoldersStore], 'readwrite');
+            const store = transaction.objectStore(this.recentFoldersStore);
+            
+            return new Promise((resolve, reject) => {
+                const request = store.delete(id);
+                
+                request.onsuccess = () => {
+                    // 不使用await，而是用.then()
+                    this.loadRecentFolders()
+                        .then(() => {
+                            this.showToast('已从列表中移除', 'info');
+                            resolve();
+                        })
+                        .catch(err => {
+                            console.error('重新加载文件夹列表失败:', err);
+                            this.showToast('已从列表中移除', 'info');
+                            resolve(); // 仍然resolve，因为删除操作已成功
+                        });
+                };
+                
+                request.onerror = () => {
+                    console.error('移除文件夹失败:', request.error);
+                    this.showToast('移除失败', 'error');
+                    reject(request.error);
+                };
+            });
+        } catch (error) {
+            console.error('移除文件夹失败:', error);
+            this.showToast('移除失败', 'error');
         }
     }
     
@@ -379,6 +610,8 @@ class MDViewerStandalone {
             this.directoryHandle = await window.showDirectoryPicker();
             // 保存文件夹句柄
             await this.saveFolderHandle(this.directoryHandle);
+            // 添加到最近文件夹列表
+            await this.addToRecentFolders(this.directoryHandle);
             this.showToast('文件夹已打开: ' + this.directoryHandle.name, 'success');
             await this.loadFiles();
         } catch (error) {

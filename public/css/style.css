@@ -102,6 +102,86 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
+/* 最近文件夹 */
+.recent-folders {
+    border-bottom: 1px solid var(--border-color);
+    background: var(--sidebar-bg);
+}
+
+.recent-folders-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-color);
+}
+
+.recent-folders-header i {
+    font-size: 12px;
+}
+
+.recent-folders-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.recent-folder-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: var(--transition);
+    border-left: 3px solid transparent;
+}
+
+.recent-folder-item:hover {
+    background: var(--bg-color);
+}
+
+.recent-folder-item.active {
+    background: rgba(74, 144, 217, 0.1);
+    border-left-color: var(--primary-color);
+}
+
+.recent-folder-item i.fa-folder {
+    font-size: 14px;
+    color: #f9a825;
+    cursor: pointer;
+}
+
+.recent-folder-item .folder-name {
+    flex: 1;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.recent-folder-item .btn-icon-small {
+    padding: 4px 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    opacity: 0;
+    transition: var(--transition);
+}
+
+.recent-folder-item:hover .btn-icon-small {
+    opacity: 1;
+}
+
+.recent-folder-item .btn-icon-small:hover {
+    background: var(--danger-color);
+    color: white;
+}
+
 .search-box {
     position: relative;
     padding: 12px 16px;
