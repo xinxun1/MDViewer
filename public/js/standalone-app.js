@@ -174,7 +174,12 @@ class MDViewerStandalone {
                 transaction.oncomplete = () => {
                     console.log('文件夹已添加到最近列表:', handle.name);
                     // 重新加载最近文件夹列表（不使用await）
-                    this.loadRecentFolders().then(() => resolve());
+                    this.loadRecentFolders()
+                        .then(() => resolve())
+                        .catch(err => {
+                            console.error('重新加载文件夹列表失败:', err);
+                            resolve(); // 仍然resolve，因为添加操作已成功
+                        });
                 };
                 
                 transaction.onerror = () => {
@@ -339,10 +344,16 @@ class MDViewerStandalone {
                 
                 request.onsuccess = () => {
                     // 不使用await，而是用.then()
-                    this.loadRecentFolders().then(() => {
-                        this.showToast('已从列表中移除', 'info');
-                        resolve();
-                    });
+                    this.loadRecentFolders()
+                        .then(() => {
+                            this.showToast('已从列表中移除', 'info');
+                            resolve();
+                        })
+                        .catch(err => {
+                            console.error('重新加载文件夹列表失败:', err);
+                            this.showToast('已从列表中移除', 'info');
+                            resolve(); // 仍然resolve，因为删除操作已成功
+                        });
                 };
                 
                 request.onerror = () => {
