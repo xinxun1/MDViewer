@@ -15,6 +15,11 @@ class MDViewerStandalone {
         this.recentFoldersStore = 'recentFolders';
         this.maxRecentFolders = 10; // 最多保存10个最近目录
         
+        // 同步滚动相关标志
+        this.isEditorScrolling = false;
+        this.isPreviewScrolling = false;
+        this.syncScrollTimeout = null;
+        
         this.initElements();
         this.initMarked();
         this.bindEvents();
@@ -431,20 +436,17 @@ class MDViewerStandalone {
                 return `<div class="mermaid">${code}</div>`;
             }
             
-            // 其他代码块正常处理
-            let highlighted;
-            if (language && hljs.getLanguage(language)) {
-                try {
-                    highlighted = hljs.highlight(code, { language: language }).value;
-                } catch (e) {
-                    console.error(e);
-                    highlighted = hljs.highlightAuto(code).value;
-                }
-            } else {
-                highlighted = hljs.highlightAuto(code).value;
-            }
+            // 其他代码块 - 只添加语言标记，不在这里高亮（避免双重处理）
+            // 转义 HTML 内容以避免安全问题
+            const escapedCode = code
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
             
-            return `<pre><code class="hljs language-${language || 'plaintext'}">${highlighted}</code></pre>`;
+            const validLanguage = language && hljs.getLanguage(language) ? language : 'plaintext';
+            return `<pre><code class="language-${validLanguage}">${escapedCode}</code></pre>`;
         };
         
         renderer.listitem = (text) => {
@@ -520,6 +522,20 @@ class MDViewerStandalone {
             this.updatePreview();
         });
         
+        // 编辑器点击同步到预览
+        this.editor.addEventListener('click', () => {
+            if (this.viewMode === 'split') {
+                this.syncPreviewFromEditor();
+            }
+        });
+        
+        // 编辑器滚动同步到预览
+        this.editor.addEventListener('scroll', () => {
+            if (this.viewMode === 'split' && !this.isPreviewScrolling) {
+                this.syncPreviewScroll();
+            }
+        });
+        
         // 快捷键
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey || e.metaKey) {
@@ -553,6 +569,20 @@ class MDViewerStandalone {
                 this.startResize(e);
             });
         }
+        
+        // 预览区域点击同步到编辑器
+        this.preview.addEventListener('click', (e) => {
+            if (this.viewMode === 'split') {
+                this.syncEditorFromPreview(e);
+            }
+        });
+        
+        // 预览区域滚动同步到编辑器
+        this.previewContainer.addEventListener('scroll', () => {
+            if (this.viewMode === 'split' && !this.isEditorScrolling) {
+                this.syncEditorScroll();
+            }
+        });
         
         // 全局鼠标事件（用于拖动）
         document.addEventListener('mousemove', (e) => {
@@ -763,9 +793,9 @@ class MDViewerStandalone {
                 let parent = item.parentElement;
                 while (parent && parent.classList.contains('tree-children')) {
                     parent.classList.add('open');
-                    const chevron = parent.previousElementSibling?.querySelector('.chevron');
+                    const chevron = parent.previousElementSibling && parent.previousElementSibling.querySelector('.chevron');
                     if (chevron) chevron.classList.add('open');
-                    parent = parent.parentElement?.parentElement;
+                    parent = parent.parentElement && parent.parentElement.parentElement;
                 }
             } else {
                 item.style.display = 'none';
@@ -975,9 +1005,16 @@ class MDViewerStandalone {
         const content = this.editor.value;
         this.preview.innerHTML = marked.parse(content);
         
-        // 重新高亮代码块
+        // 重新高亮代码块（安全方式）
         this.preview.querySelectorAll('pre code:not(.mermaid)').forEach((block) => {
-            hljs.highlightElement(block);
+            // 移除之前的高亮
+            delete block.dataset.highlighted;
+            // 安全地高亮代码块
+            try {
+                hljs.highlightElement(block);
+            } catch (error) {
+                console.warn('[Preview] 代码高亮失败:', error);
+            }
         });
         
         // 渲染 Mermaid 图表
@@ -1002,6 +1039,28 @@ class MDViewerStandalone {
                     }, 100);
                 }).catch(err => {
                     console.error('[Preview] Mermaid 渲染错误:', err);
+                    
+                    // 在失败的图表位置显示友好的错误信息
+                    mermaidElements.forEach(element => {
+                        if (element.querySelector('svg')) return; // 已经成功渲染的跳过
+                        
+                        const errorMsg = err.message || err.str || '未知错误';
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'mermaid-error';
+                        errorDiv.innerHTML = `
+                            <div class="mermaid-error-content">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h4>Mermaid 图表渲染失败</h4>
+                                <p>${errorMsg}</p>
+                                <details>
+                                    <summary>查看原始代码</summary>
+                                    <pre><code>${element.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
+                                </details>
+                                <p class="hint">💡 提示：检查图表语法是否正确，特别注意特殊字符需要转义</p>
+                            </div>
+                        `;
+                        element.replaceWith(errorDiv);
+                    });
                 });
             }
         } else {
@@ -1019,6 +1078,82 @@ class MDViewerStandalone {
                 ],
                 throwOnError: false
             });
+        }
+        
+        // 处理 Markdown 链接点击（相对路径跳转）
+        this.handleMarkdownLinks();
+    }
+    
+    // 处理 Markdown 链接点击
+    handleMarkdownLinks() {
+        const links = this.preview.querySelectorAll('a[href]');
+        
+        links.forEach(link => {
+            const href = link.getAttribute('href');
+            
+            // 只处理相对路径的 .md 文件链接
+            if (href && href.endsWith('.md') && !href.startsWith('http') && !href.startsWith('//')) {
+                link.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    
+                    try {
+                        // 获取当前文件的路径
+                        const currentFilePath = this.currentFileEl.textContent;
+                        
+                        // 计算目标文件的路径（相对于当前文件）
+                        const targetPath = this.resolveRelativePath(currentFilePath, href);
+                        
+                        console.log(`[Link] 当前文件: ${currentFilePath}`);
+                        console.log(`[Link] 链接href: ${href}`);
+                        console.log(`[Link] 目标路径: ${targetPath}`);
+                        
+                        // 检查目标文件是否存在
+                        if (this.fileHandles.has(targetPath)) {
+                            await this.loadFile(targetPath);
+                        } else {
+                            this.showToast(`文件不存在: ${targetPath}`, 'error');
+                        }
+                    } catch (error) {
+                        console.error('[Link] 跳转失败:', error);
+                        this.showToast('文件跳转失败: ' + error.message, 'error');
+                    }
+                });
+                
+                // 添加视觉提示
+                link.style.cursor = 'pointer';
+                link.title = `跳转到: ${href}`;
+            }
+        });
+    }
+    
+    // 解析相对路径
+    resolveRelativePath(currentPath, relativePath) {
+        // 移除开头的 ./
+        relativePath = relativePath.replace(/^\.\//g, '');
+        
+        // 获取当前文件所在目录
+        const currentDir = currentPath.substring(0, currentPath.lastIndexOf('/'));
+        
+        // 处理 ../ 的情况
+        let targetPath = relativePath;
+        let baseDir = currentDir;
+        
+        while (targetPath.startsWith('../')) {
+            targetPath = targetPath.substring(3);
+            // 向上一级目录
+            const lastSlash = baseDir.lastIndexOf('/');
+            if (lastSlash > 0) {
+                baseDir = baseDir.substring(0, lastSlash);
+            } else {
+                baseDir = '';
+            }
+        }
+        
+        // 组合最终路径
+        if (baseDir) {
+            return `${baseDir}/${targetPath}`;
+        } else {
+            return targetPath;
         }
     }
     
@@ -1118,6 +1253,13 @@ class MDViewerStandalone {
         this.currentZoomScale = 1;
         this.currentDiagram = null;
         
+        // 拖动相关状态
+        this.isDragging = false;
+        this.dragStartX = 0;
+        this.dragStartY = 0;
+        this.translateX = 0;
+        this.translateY = 0;
+        
         // 关闭按钮
         if (this.zoomClose) {
             this.zoomClose.addEventListener('click', () => this.closeDiagramZoom());
@@ -1166,6 +1308,35 @@ class MDViewerStandalone {
                 const delta = e.deltaY > 0 ? -0.1 : 0.1;
                 this.adjustZoom(delta);
             });
+            
+            // 拖动功能
+            this.zoomContent.addEventListener('mousedown', (e) => {
+                if (!this.zoomModal || !this.zoomModal.classList.contains('show')) return;
+                if (e.button !== 0) return; // 只响应左键
+                
+                this.isDragging = true;
+                this.dragStartX = e.clientX - this.translateX;
+                this.dragStartY = e.clientY - this.translateY;
+                this.zoomContent.style.cursor = 'grabbing';
+                e.preventDefault();
+                console.log('[Zoom] 开始拖动');
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!this.isDragging) return;
+                
+                this.translateX = e.clientX - this.dragStartX;
+                this.translateY = e.clientY - this.dragStartY;
+                this.updateZoomTransform();
+            });
+            
+            document.addEventListener('mouseup', () => {
+                if (this.isDragging) {
+                    this.isDragging = false;
+                    this.zoomContent.style.cursor = 'grab';
+                    console.log('[Zoom] 停止拖动');
+                }
+            });
         }
         
         console.log('[Zoom] 缩放功能初始化完成');
@@ -1187,6 +1358,12 @@ class MDViewerStandalone {
         this.zoomContent.innerHTML = '';
         this.zoomContent.appendChild(clone);
         this.currentDiagram = clone;
+        
+        // 重置拖动状态
+        this.translateX = 0;
+        this.translateY = 0;
+        this.isDragging = false;
+        this.zoomContent.style.cursor = 'grab';
         
         // 显示模态框
         this.zoomModal.classList.add('show');
@@ -1250,6 +1427,9 @@ class MDViewerStandalone {
     closeDiagramZoom() {
         this.zoomModal.classList.remove('show');
         document.body.style.overflow = '';
+        this.isDragging = false;
+        this.translateX = 0;
+        this.translateY = 0;
         setTimeout(() => {
             this.zoomContent.innerHTML = '';
             this.currentDiagram = null;
@@ -1271,7 +1451,7 @@ class MDViewerStandalone {
     // 更新缩放变换
     updateZoomTransform() {
         if (this.currentDiagram) {
-            this.currentDiagram.style.transform = `scale(${this.currentZoomScale})`;
+            this.currentDiagram.style.transform = `translate(${this.translateX}px, ${this.translateY}px) scale(${this.currentZoomScale})`;
             this.currentDiagram.style.transformOrigin = 'center center';
             this.zoomLevel.textContent = `${Math.round(this.currentZoomScale * 100)}%`;
         }
@@ -1321,6 +1501,130 @@ class MDViewerStandalone {
         });
         
         console.log(`[Zoom] ✅ 成功绑定 ${diagrams.length} 个图表的事件`);
+    }
+    
+    // ==================== 编辑器与预览同步功能 ====================
+    
+    // 从编辑器同步到预览（点击）
+    syncPreviewFromEditor() {
+        const cursorPosition = this.editor.selectionStart;
+        const textBeforeCursor = this.editor.value.substring(0, cursorPosition);
+        const currentLine = textBeforeCursor.split('\n').length;
+        
+        // 计算当前行在整个文档中的比例
+        const totalLines = this.editor.value.split('\n').length;
+        const ratio = currentLine / totalLines;
+        
+        // 滚动预览到相应位置
+        const maxScroll = this.previewContainer.scrollHeight - this.previewContainer.clientHeight;
+        const targetScroll = maxScroll * ratio;
+        
+        this.isEditorScrolling = true;
+        this.previewContainer.scrollTo({
+            top: targetScroll,
+            behavior: 'smooth'
+        });
+        
+        setTimeout(() => {
+            this.isEditorScrolling = false;
+        }, 100);
+        
+        console.log(`[Sync] 编辑器第 ${currentLine}/${totalLines} 行 → 预览滚动到 ${Math.round(ratio * 100)}%`);
+    }
+    
+    // 从编辑器滚动同步到预览
+    syncPreviewScroll() {
+        clearTimeout(this.syncScrollTimeout);
+        this.syncScrollTimeout = setTimeout(() => {
+            const editorScrollRatio = this.editor.scrollTop / (this.editor.scrollHeight - this.editor.clientHeight);
+            const previewMaxScroll = this.previewContainer.scrollHeight - this.previewContainer.clientHeight;
+            
+            this.isEditorScrolling = true;
+            this.previewContainer.scrollTop = previewMaxScroll * editorScrollRatio;
+            
+            setTimeout(() => {
+                this.isEditorScrolling = false;
+            }, 50);
+        }, 50);
+    }
+    
+    // 从预览同步到编辑器（点击）
+    syncEditorFromPreview(event) {
+        // 获取点击的元素
+        let target = event.target;
+        
+        // 向上查找直到找到有 id 的标题元素
+        while (target && target !== this.preview) {
+            if (target.id && target.tagName.match(/^H[1-6]$/)) {
+                // 找到标题，在编辑器中查找对应的行
+                const headingText = target.textContent;
+                const editorText = this.editor.value;
+                const lines = editorText.split('\n');
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line.match(/^#{1,6}\s/) && line.includes(headingText.trim())) {
+                        // 找到对应的行，滚动编辑器
+                        this.scrollEditorToLine(i);
+                        console.log(`[Sync] 预览标题 "${headingText}" → 编辑器第 ${i + 1} 行`);
+                        return;
+                    }
+                }
+            }
+            target = target.parentElement;
+        }
+        
+        // 如果没有找到标题，使用滚动比例同步
+        const previewScrollRatio = this.previewContainer.scrollTop / (this.previewContainer.scrollHeight - this.previewContainer.clientHeight);
+        const editorMaxScroll = this.editor.scrollHeight - this.editor.clientHeight;
+        
+        this.isPreviewScrolling = true;
+        this.editor.scrollTop = editorMaxScroll * previewScrollRatio;
+        
+        setTimeout(() => {
+            this.isPreviewScrolling = false;
+        }, 50);
+    }
+    
+    // 从预览滚动同步到编辑器
+    syncEditorScroll() {
+        clearTimeout(this.syncScrollTimeout);
+        this.syncScrollTimeout = setTimeout(() => {
+            const previewScrollRatio = this.previewContainer.scrollTop / (this.previewContainer.scrollHeight - this.previewContainer.clientHeight);
+            const editorMaxScroll = this.editor.scrollHeight - this.editor.clientHeight;
+            
+            this.isPreviewScrolling = true;
+            this.editor.scrollTop = editorMaxScroll * previewScrollRatio;
+            
+            setTimeout(() => {
+                this.isPreviewScrolling = false;
+            }, 50);
+        }, 50);
+    }
+    
+    // 滚动编辑器到指定行
+    scrollEditorToLine(lineNumber) {
+        const lines = this.editor.value.split('\n');
+        let charCount = 0;
+        
+        for (let i = 0; i < lineNumber && i < lines.length; i++) {
+            charCount += lines[i].length + 1; // +1 for newline
+        }
+        
+        // 设置光标位置
+        this.editor.setSelectionRange(charCount, charCount);
+        this.editor.focus();
+        
+        // 计算行的位置并滚动
+        const lineHeight = parseInt(window.getComputedStyle(this.editor).lineHeight);
+        const scrollTop = lineNumber * lineHeight - this.editor.clientHeight / 3;
+        
+        this.isPreviewScrolling = true;
+        this.editor.scrollTop = Math.max(0, scrollTop);
+        
+        setTimeout(() => {
+            this.isPreviewScrolling = false;
+        }, 100);
     }
 }
 
