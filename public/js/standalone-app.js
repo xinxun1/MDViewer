@@ -155,18 +155,26 @@ class MDViewerStandalone {
             const folders = await this.getAllRecentFolders();
             
             // 检查是否已存在（通过name判断）
-            const existingIndex = folders.findIndex(f => f.name === handle.name);
+            const existingFolder = folders.find(f => f.name === handle.name);
+            const existingId = existingFolder ? existingFolder.id : null;
+            
+            // 确定需要删除的旧文件夹ID
+            let oldestId = null;
+            if (!existingId && folders.length >= this.maxRecentFolders) {
+                // 如果不是更新现有项，且已达到上限，需要删除最旧的
+                const sortedFolders = [...folders].sort((a, b) => a.timestamp - b.timestamp);
+                oldestId = sortedFolders[0].id;
+            }
             
             // 创建新的事务进行写操作
             const transaction = this.db.transaction([this.recentFoldersStore], 'readwrite');
             const store = transaction.objectStore(this.recentFoldersStore);
             
             return new Promise((resolve, reject) => {
-                transaction.oncomplete = async () => {
+                transaction.oncomplete = () => {
                     console.log('文件夹已添加到最近列表:', handle.name);
-                    // 重新加载最近文件夹列表
-                    await this.loadRecentFolders();
-                    resolve();
+                    // 重新加载最近文件夹列表（不使用await）
+                    this.loadRecentFolders().then(() => resolve());
                 };
                 
                 transaction.onerror = () => {
@@ -175,18 +183,13 @@ class MDViewerStandalone {
                 };
                 
                 // 如果已存在，删除旧的
-                if (existingIndex !== -1) {
-                    store.delete(folders[existingIndex].id);
+                if (existingId) {
+                    store.delete(existingId);
                 }
                 
-                // 如果超过最大数量，删除最旧的
-                if (folders.length >= this.maxRecentFolders) {
-                    // 按时间戳排序
-                    folders.sort((a, b) => a.timestamp - b.timestamp);
-                    // 删除最旧的（如果它不是我们要删除的现有项）
-                    if (existingIndex === -1 || folders[0].id !== folders[existingIndex].id) {
-                        store.delete(folders[0].id);
-                    }
+                // 如果需要删除最旧的
+                if (oldestId) {
+                    store.delete(oldestId);
                 }
                 
                 // 添加新的到列表
@@ -334,10 +337,12 @@ class MDViewerStandalone {
             return new Promise((resolve, reject) => {
                 const request = store.delete(id);
                 
-                request.onsuccess = async () => {
-                    await this.loadRecentFolders();
-                    this.showToast('已从列表中移除', 'info');
-                    resolve();
+                request.onsuccess = () => {
+                    // 不使用await，而是用.then()
+                    this.loadRecentFolders().then(() => {
+                        this.showToast('已从列表中移除', 'info');
+                        resolve();
+                    });
                 };
                 
                 request.onerror = () => {
