@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>缩放功能调试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .debug-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .debug-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .test-diagram {
+            border: 2px solid #4a90d9;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            cursor: zoom-in;
+        }
+        .test-diagram:hover {
+            box-shadow: 0 0 10px rgba(74, 144, 217, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 UML 图表缩放功能调试工具</h1>
+    
+    <div class="debug-section">
+        <h3>1️⃣ 检查必需文件</h3>
+        <div id="fileCheck"></div>
+        <button onclick="checkFiles()">重新检查</button>
+    </div>
+    
+    <div class="debug-section">
+        <h3>2️⃣ 检查 HTML 结构</h3>
+        <div id="htmlCheck"></div>
+        <button onclick="checkHTML()">检查 HTML</button>
+    </div>
+    
+    <div class="debug-section">
+        <h3>3️⃣ 检查 JavaScript 加载</h3>
+        <div id="jsCheck"></div>
+        <button onclick="checkJavaScript()">检查 JS</button>
+    </div>
+    
+    <div class="debug-section">
+        <h3>4️⃣ 检查事件绑定</h3>
+        <div id="eventCheck"></div>
+        <button onclick="checkEvents()">检查事件</button>
+    </div>
+    
+    <div class="debug-section">
+        <h3>5️⃣ 测试双击事件</h3>
+        <div class="test-diagram mermaid" id="testDiagram">
+            <svg width="200" height="100">
+                <rect width="200" height="100" fill="#4a90d9"/>
+                <text x="100" y="55" text-anchor="middle" fill="white" font-size="18">
+                    双击我测试
+                </text>
+            </svg>
+        </div>
+        <div id="testResult"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>6️⃣ 控制台日志</h3>
+        <pre id="consoleLog"></pre>
+        <button onclick="copyLog()">复制日志</button>
+    </div>
+
+    <script>
+        let log = [];
+        
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            log.push(`[${timestamp}] [${type}] ${message}`);
+            updateConsoleLog();
+        }
+        
+        function updateConsoleLog() {
+            document.getElementById('consoleLog').textContent = log.join('\n');
+        }
+        
+        function showStatus(elementId, message, type = 'success') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="status ${type}">${message}</div>`;
+            addLog(message, type);
+        }
+        
+        // 1. 检查文件
+        function checkFiles() {
+            addLog('开始检查文件...', 'info');
+            const checks = [
+                { name: 'standalone.html', path: 'standalone.html' },
+                { name: 'standalone-app.js', path: 'public/js/standalone-app.js' },
+                { name: 'markdown.css', path: 'public/css/markdown.css' },
+                { name: 'style.css', path: 'public/css/style.css' }
+            ];
+            
+            let html = '<ul>';
+            checks.forEach(check => {
+                html += `<li>✓ ${check.name} - 需要手动确认</li>`;
+            });
+            html += '</ul>';
+            showStatus('fileCheck', html, 'warning');
+        }
+        
+        // 2. 检查 HTML 结构
+        function checkHTML() {
+            addLog('开始检查 HTML 结构...', 'info');
+            const checks = [
+                { id: 'diagramZoomModal', name: '缩放模态框' },
+                { id: 'zoomContent', name: '缩放内容容器' },
+                { id: 'zoomClose', name: '关闭按钮' },
+                { id: 'zoomIn', name: '放大按钮' },
+                { id: 'zoomOut', name: '缩小按钮' },
+                { id: 'zoomReset', name: '重置按钮' },
+                { id: 'zoomLevel', name: '缩放级别显示' }
+            ];
+            
+            let html = '<ul>';
+            let allFound = true;
+            checks.forEach(check => {
+                // 尝试在 standalone.html 中查找
+                const exists = `需要在 standalone.html 中确认`;
+                html += `<li>❓ ${check.name} (id="${check.id}") - ${exists}</li>`;
+            });
+            html += '</ul>';
+            showStatus('htmlCheck', html, 'warning');
+        }
+        
+        // 3. 检查 JavaScript
+        function checkJavaScript() {
+            addLog('开始检查 JavaScript...', 'info');
+            let html = '<ul>';
+            
+            // 检查全局对象
+            if (typeof window.mdViewer !== 'undefined') {
+                html += '<li>✓ window.mdViewer 存在</li>';
+                
+                // 检查方法
+                const methods = [
+                    'initDiagramZoom',
+                    'openDiagramZoom',
+                    'closeDiagramZoom',
+                    'attachDiagramZoomHandlers'
+                ];
+                
+                methods.forEach(method => {
+                    if (typeof window.mdViewer[method] === 'function') {
+                        html += `<li>✓ ${method} 方法存在</li>`;
+                    } else {
+                        html += `<li>✗ ${method} 方法不存在</li>`;
+                    }
+                });
+            } else {
+                html += '<li>✗ window.mdViewer 不存在（standalone-app.js 未加载或未初始化）</li>';
+            }
+            
+            html += '</ul>';
+            showStatus('jsCheck', html, 'info');
+        }
+        
+        // 4. 检查事件绑定
+        function checkEvents() {
+            addLog('开始检查事件绑定...', 'info');
+            const diagrams = document.querySelectorAll('.mermaid');
+            
+            let html = `<p>找到 ${diagrams.length} 个 .mermaid 元素</p><ul>`;
+            
+            if (diagrams.length === 0) {
+                html += '<li>⚠️ 没有找到 .mermaid 元素</li>';
+            } else {
+                diagrams.forEach((diagram, index) => {
+                    const hasHandler = typeof diagram._zoomHandler === 'function';
+                    const hasDoubleClick = diagram.ondblclick !== null;
+                    
+                    if (hasHandler || hasDoubleClick) {
+                        html += `<li>✓ 元素 ${index + 1} 已绑定双击事件</li>`;
+                    } else {
+                        html += `<li>✗ 元素 ${index + 1} 未绑定双击事件</li>`;
+                    }
+                });
+            }
+            
+            html += '</ul>';
+            showStatus('eventCheck', html, diagrams.length > 0 ? 'success' : 'warning');
+        }
+        
+        // 5. 测试双击
+        document.getElementById('testDiagram').addEventListener('dblclick', function() {
+            showStatus('testResult', '✓ 双击事件触发成功！', 'success');
+            addLog('测试图表双击事件触发', 'success');
+        });
+        
+        // 6. 复制日志
+        function copyLog() {
+            const logText = log.join('\n');
+            navigator.clipboard.writeText(logText).then(() => {
+                alert('日志已复制到剪贴板');
+            });
+        }
+        
+        // 自动执行检查
+        window.addEventListener('load', () => {
+            addLog('页面加载完成', 'info');
+            setTimeout(() => {
+                checkFiles();
+                checkHTML();
+                checkJavaScript();
+                checkEvents();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

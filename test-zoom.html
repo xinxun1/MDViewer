@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双击缩放测试</title>
+    <link rel="stylesheet" href="public/css/markdown.css">
+    <style>
+        body {
+            padding: 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+            font-family: Arial, sans-serif;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #4a90d9;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.ok { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        
+        /* 测试样式 */
+        .test-diagram {
+            border: 2px dashed #4a90d9;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            cursor: zoom-in;
+            transition: all 0.3s;
+        }
+        .test-diagram:hover {
+            box-shadow: 0 0 15px rgba(74, 144, 217, 0.5);
+            transform: scale(1.02);
+        }
+        .test-diagram svg {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 双击缩放功能测试</h1>
+    
+    <div class="test-section">
+        <h2>测试 1: CSS 样式检查</h2>
+        <div id="cssStatus"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 2: 模态框元素检查</h2>
+        <div id="modalStatus"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 3: 双击测试图表</h2>
+        <p>下面的图表应该有以下特征：</p>
+        <ul>
+            <li>鼠标悬停时有阴影和缩放效果</li>
+            <li>双击时应该弹出缩放模态框</li>
+            <li>显示 "双击放大查看" 提示</li>
+        </ul>
+        
+        <div class="test-diagram mermaid" title="双击放大查看">
+            <svg width="400" height="200" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#4a90d9;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#357abd;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+                <rect width="400" height="200" fill="url(#grad1)" rx="10"/>
+                <text x="200" y="80" text-anchor="middle" fill="white" font-size="24" font-weight="bold">
+                    测试 UML 图表
+                </text>
+                <text x="200" y="120" text-anchor="middle" fill="white" font-size="18">
+                    双击我测试缩放功能
+                </text>
+                <text x="200" y="160" text-anchor="middle" fill="white" font-size="14" opacity="0.8">
+                    (应该弹出全屏模态框)
+                </text>
+            </svg>
+        </div>
+        
+        <div id="clickStatus"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 4: Mermaid 真实图表</h2>
+        <div class="mermaid" title="双击放大查看">
+            graph LR
+                A[开始] --> B{判断}
+                B -->|是| C[执行A]
+                B -->|否| D[执行B]
+                C --> E[结束]
+                D --> E
+        </div>
+        <div id="mermaidStatus"></div>
+    </div>
+
+    <!-- 缩放模态框 -->
+    <div class="diagram-zoom-modal" id="diagramZoomModal">
+        <button class="zoom-close" id="zoomClose" title="关闭 (ESC)">×</button>
+        <div class="zoom-content" id="zoomContent">
+            <!-- 放大的图表会插入这里 -->
+        </div>
+        <div class="zoom-controls">
+            <button id="zoomOut" title="缩小 (-)">−</button>
+            <span class="zoom-level" id="zoomLevel">100%</span>
+            <button id="zoomIn" title="放大 (+)">+</button>
+            <button id="zoomReset" title="重置 (0)">⟲</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <script>
+        // 初始化 Mermaid
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default'
+        });
+        
+        // 检查 CSS
+        function checkCSS() {
+            const modal = document.getElementById('diagramZoomModal');
+            const styles = window.getComputedStyle(modal);
+            
+            let html = '<ul>';
+            html += `<li>Modal display: ${styles.display} ${styles.display === 'none' ? '✓' : '✗'}</li>`;
+            html += `<li>Modal position: ${styles.position} ${styles.position === 'fixed' ? '✓' : '✗'}</li>`;
+            html += `<li>Modal z-index: ${styles.zIndex} ${styles.zIndex >= '10000' ? '✓' : '✗'}</li>`;
+            
+            const diagrams = document.querySelectorAll('.mermaid');
+            const diagramStyle = diagrams[0] ? window.getComputedStyle(diagrams[0]) : null;
+            if (diagramStyle) {
+                html += `<li>Diagram cursor: ${diagramStyle.cursor} ${diagramStyle.cursor.includes('zoom') ? '✓' : '⚠️'}</li>`;
+            }
+            html += '</ul>';
+            
+            document.getElementById('cssStatus').innerHTML = `<div class="status ok">${html}</div>`;
+        }
+        
+        // 检查模态框元素
+        function checkModal() {
+            const elements = [
+                'diagramZoomModal',
+                'zoomClose',
+                'zoomContent',
+                'zoomIn',
+                'zoomOut',
+                'zoomReset',
+                'zoomLevel'
+            ];
+            
+            let html = '<ul>';
+            let allFound = true;
+            elements.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    html += `<li>✓ #${id} 存在</li>`;
+                } else {
+                    html += `<li>✗ #${id} 不存在</li>`;
+                    allFound = false;
+                }
+            });
+            html += '</ul>';
+            
+            const statusClass = allFound ? 'ok' : 'error';
+            document.getElementById('modalStatus').innerHTML = `<div class="status ${statusClass}">${html}</div>`;
+        }
+        
+        // 简单的缩放实现
+        class SimpleZoom {
+            constructor() {
+                this.modal = document.getElementById('diagramZoomModal');
+                this.content = document.getElementById('zoomContent');
+                this.closeBtn = document.getElementById('zoomClose');
+                this.zoomLevel = document.getElementById('zoomLevel');
+                this.currentScale = 1;
+                
+                this.init();
+            }
+            
+            init() {
+                // 关闭按钮
+                this.closeBtn.addEventListener('click', () => this.close());
+                
+                // 点击背景关闭
+                this.modal.addEventListener('click', (e) => {
+                    if (e.target === this.modal) this.close();
+                });
+                
+                // ESC 关闭
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && this.modal.classList.contains('show')) {
+                        this.close();
+                    }
+                });
+                
+                // 缩放按钮
+                document.getElementById('zoomIn').addEventListener('click', () => this.zoom(0.2));
+                document.getElementById('zoomOut').addEventListener('click', () => this.zoom(-0.2));
+                document.getElementById('zoomReset').addEventListener('click', () => this.reset());
+                
+                // 给所有 .mermaid 元素绑定双击事件
+                this.attachHandlers();
+                
+                console.log('SimpleZoom initialized');
+            }
+            
+            attachHandlers() {
+                const diagrams = document.querySelectorAll('.mermaid');
+                console.log(`Found ${diagrams.length} diagrams`);
+                
+                diagrams.forEach((diagram, index) => {
+                    diagram.addEventListener('dblclick', () => {
+                        console.log(`Diagram ${index} double-clicked`);
+                        this.open(diagram);
+                        
+                        // 更新状态
+                        document.getElementById('clickStatus').innerHTML = 
+                            `<div class="status ok">✓ 双击事件触发成功！图表 ${index + 1} 已打开</div>`;
+                    });
+                    
+                    console.log(`Handler attached to diagram ${index}`);
+                });
+            }
+            
+            open(element) {
+                console.log('Opening zoom modal');
+                const clone = element.cloneNode(true);
+                clone.style.cursor = 'default';
+                
+                this.content.innerHTML = '';
+                this.content.appendChild(clone);
+                
+                this.currentScale = 1;
+                this.updateScale();
+                
+                this.modal.classList.add('show');
+            }
+            
+            close() {
+                console.log('Closing zoom modal');
+                this.modal.classList.remove('show');
+                this.content.innerHTML = '';
+            }
+            
+            zoom(delta) {
+                this.currentScale = Math.max(0.5, Math.min(3, this.currentScale + delta));
+                this.updateScale();
+            }
+            
+            reset() {
+                this.currentScale = 1;
+                this.updateScale();
+            }
+            
+            updateScale() {
+                const diagram = this.content.firstChild;
+                if (diagram) {
+                    diagram.style.transform = `scale(${this.currentScale})`;
+                }
+                this.zoomLevel.textContent = `${Math.round(this.currentScale * 100)}%`;
+            }
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                checkCSS();
+                checkModal();
+                
+                // 初始化缩放功能
+                window.simpleZoom = new SimpleZoom();
+                
+                // 显示初始状态
+                document.getElementById('clickStatus').innerHTML = 
+                    '<div class="status info">ℹ️ 准备就绪，双击上方图表测试</div>';
+                
+                // Mermaid 渲染完成后重新绑定
+                setTimeout(() => {
+                    if (window.simpleZoom) {
+                        window.simpleZoom.attachHandlers();
+                        document.getElementById('mermaidStatus').innerHTML = 
+                            '<div class="status ok">✓ Mermaid 图表已渲染，双击测试</div>';
+                    }
+                }, 1000);
+            }, 500);
+        });
+    </script>
+</body>
+</html>

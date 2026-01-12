@@ -1,0 +1,16 @@
+# 在浏览器控制台（F12 → Console）中依次执行以下命令
+
+# 1. 检查有多少个 Mermaid 图表
+document.querySelectorAll('.mermaid').length
+
+# 2. 检查模态框是否存在
+document.getElementById('diagramZoomModal')
+
+# 3. 检查第一个图表是否绑定了事件
+document.querySelector('.mermaid')._zoomHandler
+
+# 4. 检查 mdViewer 对象是否存在
+window.mdViewer
+
+# 5. 手动测试打开功能（如果能打开说明功能正常）
+window.mdViewer.openDiagramZoom(document.querySelector('.mermaid'))
