@@ -151,58 +151,75 @@ class MDViewerStandalone {
         if (!this.db || !handle) return;
         
         try {
+            // 先获取所有文件夹
+            const folders = await this.getAllRecentFolders();
+            
+            // 检查是否已存在（通过name判断）
+            const existingIndex = folders.findIndex(f => f.name === handle.name);
+            
+            // 创建新的事务进行写操作
             const transaction = this.db.transaction([this.recentFoldersStore], 'readwrite');
             const store = transaction.objectStore(this.recentFoldersStore);
             
-            // 获取所有最近文件夹
-            const allRequest = store.getAll();
-            
-            return new Promise((resolve) => {
-                allRequest.onsuccess = async () => {
-                    let folders = allRequest.result || [];
-                    
-                    // 检查是否已存在（通过name判断）
-                    const existingIndex = folders.findIndex(f => f.name === handle.name);
-                    
-                    if (existingIndex !== -1) {
-                        // 如果已存在，删除旧的
-                        await store.delete(folders[existingIndex].id);
-                        folders.splice(existingIndex, 1);
-                    }
-                    
-                    // 添加新的到列表
-                    const newEntry = {
-                        handle: handle,
-                        name: handle.name,
-                        timestamp: Date.now()
-                    };
-                    
-                    // 如果超过最大数量，删除最旧的
-                    if (folders.length >= this.maxRecentFolders) {
-                        // 按时间戳排序
-                        folders.sort((a, b) => a.timestamp - b.timestamp);
-                        // 删除最旧的
-                        const oldestId = folders[0].id;
-                        await store.delete(oldestId);
-                    }
-                    
-                    // 添加新条目
-                    await store.add(newEntry);
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = async () => {
                     console.log('文件夹已添加到最近列表:', handle.name);
-                    
                     // 重新加载最近文件夹列表
                     await this.loadRecentFolders();
                     resolve();
                 };
                 
-                allRequest.onerror = () => {
-                    console.error('获取最近文件夹失败:', allRequest.error);
-                    resolve();
+                transaction.onerror = () => {
+                    console.error('添加到最近文件夹失败:', transaction.error);
+                    reject(transaction.error);
                 };
+                
+                // 如果已存在，删除旧的
+                if (existingIndex !== -1) {
+                    store.delete(folders[existingIndex].id);
+                }
+                
+                // 如果超过最大数量，删除最旧的
+                if (folders.length >= this.maxRecentFolders) {
+                    // 按时间戳排序
+                    folders.sort((a, b) => a.timestamp - b.timestamp);
+                    // 删除最旧的（如果它不是我们要删除的现有项）
+                    if (existingIndex === -1 || folders[0].id !== folders[existingIndex].id) {
+                        store.delete(folders[0].id);
+                    }
+                }
+                
+                // 添加新的到列表
+                const newEntry = {
+                    handle: handle,
+                    name: handle.name,
+                    timestamp: Date.now()
+                };
+                store.add(newEntry);
             });
         } catch (error) {
             console.error('添加到最近文件夹失败:', error);
         }
+    }
+    
+    // 获取所有最近文件夹（辅助方法）
+    async getAllRecentFolders() {
+        if (!this.db) return [];
+        
+        const transaction = this.db.transaction([this.recentFoldersStore], 'readonly');
+        const store = transaction.objectStore(this.recentFoldersStore);
+        const request = store.getAll();
+        
+        return new Promise((resolve) => {
+            request.onsuccess = () => {
+                resolve(request.result || []);
+            };
+            
+            request.onerror = () => {
+                console.error('获取最近文件夹失败:', request.error);
+                resolve([]);
+            };
+        });
     }
     
     // 加载最近文件夹列表
@@ -313,9 +330,22 @@ class MDViewerStandalone {
         try {
             const transaction = this.db.transaction([this.recentFoldersStore], 'readwrite');
             const store = transaction.objectStore(this.recentFoldersStore);
-            await store.delete(id);
-            await this.loadRecentFolders();
-            this.showToast('已从列表中移除', 'info');
+            
+            return new Promise((resolve, reject) => {
+                const request = store.delete(id);
+                
+                request.onsuccess = async () => {
+                    await this.loadRecentFolders();
+                    this.showToast('已从列表中移除', 'info');
+                    resolve();
+                };
+                
+                request.onerror = () => {
+                    console.error('移除文件夹失败:', request.error);
+                    this.showToast('移除失败', 'error');
+                    reject(request.error);
+                };
+            });
         } catch (error) {
             console.error('移除文件夹失败:', error);
             this.showToast('移除失败', 'error');
